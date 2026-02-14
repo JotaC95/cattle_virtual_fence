@@ -1,0 +1,9 @@
+aiohttp
+aiohttp_cors
+python-socketio
+aiortc
+ultralytics
+opencv-python-headless
+numpy
+shapely
+shapely
