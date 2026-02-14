@@ -1,0 +1,203 @@
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform } from 'react-native';
+import { RTCView } from 'react-native-webrtc';
+import Svg, { Polygon, Rect, Text as SvgText, Circle, Path } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import useCattleConnection from '../hooks/useCattleConnection';
+import useStore from '../store/useStore';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Mock dimensions of the backend video for scaling
+const VIDEO_WIDTH = 640;
+const VIDEO_HEIGHT = 480;
+
+const MonitorScreen = () => {
+    const insets = useSafeAreaInsets();
+    const { remoteStream, pcState } = useCattleConnection();
+    const { zones, cows, isConnected } = useStore();
+    const [editMode, setEditMode] = useState(false);
+
+    // Calculate scaling
+    // We want to fill the screen (cover)
+    // Scale must be based on the dimension that needs to stretch more
+    const scale = Math.max(SCREEN_WIDTH / VIDEO_WIDTH, SCREEN_HEIGHT / VIDEO_HEIGHT);
+
+    // Center the video
+    const translateX = (SCREEN_WIDTH - VIDEO_WIDTH * scale) / 2;
+    const translateY = (SCREEN_HEIGHT - VIDEO_HEIGHT * scale) / 2;
+
+    const getColor = (status) => {
+        switch (status) {
+            case 'INTERNAL': return '#4ade80'; // green-400
+            case 'WARNING': return '#facc15'; // yellow-400
+            case 'OUT': return '#ef4444'; // red-500
+            default: return '#ffffff';
+        }
+    };
+
+    const pointsToSvgPoints = (points) => {
+        if (!points) return "";
+        return points.map(p => {
+            const x = p.x * scale + translateX;
+            const y = p.y * scale + translateY;
+            return `${x},${y}`;
+        }).join(' ');
+    };
+
+    // Calculate Stats
+    const totalCows = cows.length;
+    const warningCows = cows.filter(c => c.status === 'WARNING').length;
+    const outCows = cows.filter(c => c.status === 'OUT').length;
+    const safetyScore = totalCows > 0 ? Math.round(((totalCows - outCows) / totalCows) * 100) : 100;
+
+    return (
+        <View className="flex-1 bg-gray-900 relative">
+            <StatusBar barStyle="light-content" />
+
+            {/* 1. Video Layer */}
+            <View className="absolute inset-0 w-full h-full overflow-hidden">
+                {remoteStream ? (
+                    <RTCView
+                        streamURL={remoteStream.toURL()}
+                        style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                        objectFit="cover"
+                        zOrder={0}
+                    />
+                ) : (
+                    <View className="flex-1 justify-center items-center bg-gray-900">
+                        <View className="w-16 h-16 rounded-full border-4 border-gray-700 border-t-blue-500 animate-spin mb-4" />
+                        <Text className="text-gray-400 font-medium tracking-widest text-xs uppercase">
+                            Establishing Uplink...
+                        </Text>
+                        <Text className="text-gray-600 text-[10px] mt-2">
+                            {isConnected ? "Signaling Connected" : "Searching for Base Station..."}
+                        </Text>
+                    </View>
+                )}
+            </View>
+
+            {/* 2. Augmented Reality Overlay (SVG) */}
+            <View className="absolute inset-0" pointerEvents="none">
+                <Svg height="100%" width="100%">
+                    {/* Safe Zone */}
+                    {zones.safe_zone && (
+                        <Polygon
+                            points={pointsToSvgPoints(zones.safe_zone)}
+                            fill="rgba(16, 185, 129, 0.15)" // Emerald
+                            stroke={editMode ? "#22d3ee" : "#10b981"} // Cyan or Emerald
+                            strokeWidth={editMode ? "3" : "2"}
+                            strokeDasharray={editMode ? "10, 5" : ""}
+                        />
+                    )}
+
+                    {/* Cow Targets */}
+                    {cows.map(cow => {
+                        const x = cow.bbox[0] * scale + translateX;
+                        const y = cow.bbox[1] * scale + translateY;
+                        const w = (cow.bbox[2] - cow.bbox[0]) * scale;
+                        const h = (cow.bbox[3] - cow.bbox[1]) * scale;
+                        const color = getColor(cow.status);
+
+                        return (
+                            <React.Fragment key={cow.id}>
+                                {/* Corner Brackets Look */}
+                                <Rect
+                                    x={x} y={y} width={w} height={h}
+                                    fill="transparent"
+                                    stroke={color}
+                                    strokeWidth="2"
+                                />
+                                {/* Label Tag */}
+                                <Rect
+                                    x={x} y={y - 20} width={60} height={20}
+                                    fill={color}
+                                    opacity={0.8}
+                                />
+                                <SvgText
+                                    x={x + 5}
+                                    y={y - 6}
+                                    fill="black"
+                                    fontSize="12"
+                                    fontWeight="bold"
+                                >
+                                    ID {cow.id}
+                                </SvgText>
+                            </React.Fragment>
+                        );
+                    })}
+                </Svg>
+            </View>
+
+            {/* 3. UI Layer (Controls) */}
+            <View className="flex-1" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
+
+                {/* Header */}
+                <View className="flex-row justify-between items-center px-6 py-4">
+                    <View>
+                        <Text className="text-white font-black text-xl italic tracking-tighter">
+                            CATTLE<Text className="text-blue-500">GUARD</Text>
+                        </Text>
+                        <View className="flex-row items-center mt-1">
+                            <View className={`w-2 h-2 rounded-full mr-2 ${pcState === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
+                            <Text className="text-gray-400 text-[10px] uppercase font-bold">
+                                {pcState === 'connected' ? 'LIVE FEED' : pcState.toUpperCase()}
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* Mini Stats Pill */}
+                    <View className="bg-gray-800/80 px-3 py-1.5 rounded-full border border-gray-700 flex-row items-center backdrop-blur-md">
+                        <Text className="text-gray-400 text-xs mr-2 font-bold">SAFETY</Text>
+                        <Text className={`text-xs font-black ${safetyScore === 100 ? 'text-green-400' : 'text-yellow-400'}`}>
+                            {safetyScore}%
+                        </Text>
+                    </View>
+                </View>
+
+                {/* Spacer */}
+                <View className="flex-1" />
+
+                {/* Bottom Deck */}
+                <View className="px-6 mb-4">
+                    {/* Glass Panel */}
+                    <View className="bg-gray-900/90 rounded-3xl p-5 border border-gray-800 shadow-2xl backdrop-blur-xl">
+
+                        {/* Metrics Row */}
+                        <View className="flex-row justify-between mb-6">
+                            <View className="items-center">
+                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Total Head</Text>
+                                <Text className="text-white text-2xl font-light">{totalCows}</Text>
+                            </View>
+                            <View className="items-center">
+                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Secure</Text>
+                                <Text className="text-green-400 text-2xl font-light">{totalCows - outCows - warningCows}</Text>
+                            </View>
+                            <View className="items-center">
+                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Breach</Text>
+                                <Text className="text-red-500 text-2xl font-light">{outCows}</Text>
+                            </View>
+                        </View>
+
+                        {/* Action Bar */}
+                        <View className="flex-row space-x-4">
+                            <TouchableOpacity
+                                onPress={() => setEditMode(!editMode)}
+                                className={`flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${editMode
+                                        ? 'bg-cyan-600 border-cyan-800'
+                                        : 'bg-indigo-600 border-indigo-800'
+                                    }`}
+                            >
+                                <Text className="text-white font-bold tracking-wider text-sm">
+                                    {editMode ? 'SAVE CONFIG' : 'EDIT FENCE'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </View>
+        </View>
+    );
+};
+
+export default MonitorScreen;
