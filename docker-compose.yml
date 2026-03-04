@@ -1,12 +1,14 @@
 services:
   backend:
     build: ./backend
-    ports:
-      - "5001:5000"
+    # ports:
+    #   - "5001:5000"
+    network_mode: "host"
     volumes:
       - ./backend:/app
     environment:
       - FLASK_ENV=development
+
     # Allow access to host network or specific ports for WebRTC/SocketIO
     # network_mode: "host" is best for WebRTC on Linux, but on Mac/Windows use ports.
     # We exposed 5000. For WebRTC UDP, we might need a range.

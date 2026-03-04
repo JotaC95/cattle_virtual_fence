@@ -21,7 +21,7 @@ const useCattleConnection = () => {
 
         // Initialize Socket
         const socket = io(serverUrl, {
-            transports: ['websocket'],
+            transports: ['websocket', 'polling'], // Allow polling as fallback
             reconnectionAttempts: 5,
         });
         socketRef.current = socket;
