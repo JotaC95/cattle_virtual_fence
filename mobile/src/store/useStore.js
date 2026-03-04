@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 const useStore = create((set, get) => ({
-    serverUrl: 'http://192.168.0.171:5001', // LAN IP for WebRTC stability
+    serverUrl: 'http://192.168.1.100:5001', // LAN IP for WebRTC stability
     setServerUrl: (url) => set({ serverUrl: url }),
 
     isConnected: false,

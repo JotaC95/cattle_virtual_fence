@@ -9,8 +9,10 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "^13.0.0",
     "expo": "~54.0.30",
     "expo-camera": "~17.0.10",
+    "expo-dev-client": "~6.0.20",
     "expo-status-bar": "~3.0.9",
     "nativewind": "^4.2.1",
     "react": "19.1.0",

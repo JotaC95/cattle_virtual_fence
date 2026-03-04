@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, PanResponder } from 'react-native';
 import { RTCView } from 'react-native-webrtc';
 import Svg, { Polygon, Rect, Text as SvgText, Circle, Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,11 +12,43 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const VIDEO_WIDTH = 640;
 const VIDEO_HEIGHT = 480;
 
+const DraggablePoint = ({ x, y, onMove }) => {
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onPanResponderMove: (evt) => {
+                onMove(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+            },
+            onPanResponderRelease: (evt) => {
+                onMove(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+            }
+        })
+    ).current;
+
+    return (
+        <View
+            {...panResponder.panHandlers}
+            style={{
+                position: 'absolute',
+                left: x - 25,
+                top: y - 25,
+                width: 50,
+                height: 50,
+                justifyContent: 'center',
+                alignItems: 'center',
+            }}
+        >
+            <View className="w-6 h-6 rounded-full bg-cyan-400 border-[3px] border-white shadow-xl" />
+        </View>
+    );
+};
+
 const MonitorScreen = () => {
     const insets = useSafeAreaInsets();
-    const { remoteStream, pcState } = useCattleConnection();
+    const { remoteStream, pcState, updateZone } = useCattleConnection();
     const { zones, cows, isConnected } = useStore();
     const [editMode, setEditMode] = useState(false);
+    const [editablePoints, setEditablePoints] = useState([]);
 
     // Calculate scaling
     // We want to fill the screen (cover)
@@ -26,6 +58,37 @@ const MonitorScreen = () => {
     // Center the video
     const translateX = (SCREEN_WIDTH - VIDEO_WIDTH * scale) / 2;
     const translateY = (SCREEN_HEIGHT - VIDEO_HEIGHT * scale) / 2;
+
+    const toggleEditMode = () => {
+        if (!editMode) {
+            if (zones.safe_zone && zones.safe_zone.length > 2) {
+                setEditablePoints([...zones.safe_zone]);
+            } else {
+                setEditablePoints([
+                    { x: 100, y: 100 },
+                    { x: VIDEO_WIDTH - 100, y: 100 },
+                    { x: VIDEO_WIDTH - 100, y: VIDEO_HEIGHT - 100 },
+                    { x: 100, y: VIDEO_HEIGHT - 100 }
+                ]);
+            }
+            setEditMode(true);
+        } else {
+            updateZone({ safe_zone: editablePoints });
+            setEditMode(false);
+        }
+    };
+
+    const handlePointMove = (index, screenX, screenY) => {
+        const backendX = (screenX - translateX) / scale;
+        const backendY = (screenY - translateY) / scale;
+        
+        const newPoints = [...editablePoints];
+        newPoints[index] = { 
+            x: Math.round(Math.max(0, Math.min(VIDEO_WIDTH, backendX))), 
+            y: Math.round(Math.max(0, Math.min(VIDEO_HEIGHT, backendY))) 
+        };
+        setEditablePoints(newPoints);
+    };
 
     const getColor = (status) => {
         switch (status) {
@@ -81,9 +144,9 @@ const MonitorScreen = () => {
             <View className="absolute inset-0" pointerEvents="none">
                 <Svg height="100%" width="100%">
                     {/* Safe Zone */}
-                    {zones.safe_zone && (
+                    {(editMode ? editablePoints.length > 0 : (zones.safe_zone && zones.safe_zone.length > 0)) && (
                         <Polygon
-                            points={pointsToSvgPoints(zones.safe_zone)}
+                            points={pointsToSvgPoints(editMode ? editablePoints : zones.safe_zone)}
                             fill="rgba(16, 185, 129, 0.15)" // Emerald
                             stroke={editMode ? "#22d3ee" : "#10b981"} // Cyan or Emerald
                             strokeWidth={editMode ? "3" : "2"}
@@ -129,8 +192,26 @@ const MonitorScreen = () => {
                 </Svg>
             </View>
 
+            {/* Draggable Handles for Edit Mode */}
+            {editMode && (
+                <View className="absolute inset-0" pointerEvents="box-none">
+                    {editablePoints.map((point, index) => {
+                        const screenX = point.x * scale + translateX;
+                        const screenY = point.y * scale + translateY;
+                        return (
+                            <DraggablePoint
+                                key={index}
+                                x={screenX}
+                                y={screenY}
+                                onMove={(x, y) => handlePointMove(index, x, y)}
+                            />
+                        );
+                    })}
+                </View>
+            )}
+
             {/* 3. UI Layer (Controls) */}
-            <View className="flex-1" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
+            <View className="flex-1" pointerEvents="box-none" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
 
                 {/* Header */}
                 <View className="flex-row justify-between items-center px-6 py-4">
@@ -182,7 +263,7 @@ const MonitorScreen = () => {
                         {/* Action Bar */}
                         <View className="flex-row space-x-4">
                             <TouchableOpacity
-                                onPress={() => setEditMode(!editMode)}
+                                onPress={toggleEditMode}
                                 className={`flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${editMode
                                         ? 'bg-cyan-600 border-cyan-800'
                                         : 'bg-indigo-600 border-indigo-800'
