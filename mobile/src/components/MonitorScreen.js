@@ -30,15 +30,16 @@ const DraggablePoint = ({ x, y, onMove }) => {
             {...panResponder.panHandlers}
             style={{
                 position: 'absolute',
-                left: x - 25,
-                top: y - 25,
-                width: 50,
-                height: 50,
+                left: x - 35, // Increased touch target
+                top: y - 35,
+                width: 70,
+                height: 70,
                 justifyContent: 'center',
                 alignItems: 'center',
+                zIndex: 10,
             }}
         >
-            <View className="w-6 h-6 rounded-full bg-cyan-400 border-[3px] border-white shadow-xl" />
+            <View className="w-8 h-8 rounded-full bg-cyan-400 border-[4px] border-white shadow-xl opacity-90" />
         </View>
     );
 };
@@ -62,7 +63,13 @@ const MonitorScreen = () => {
     const toggleEditMode = () => {
         if (!editMode) {
             if (zones.safe_zone && zones.safe_zone.length > 2) {
-                setEditablePoints([...zones.safe_zone]);
+                // Backend provides relative points, convert to standard reference dimensions (e.g. 640x480) 
+                // for the editable logic which handles physical coordinates.
+                const absolutePoints = zones.safe_zone.map(p => ({
+                    x: p.x <= 1.5 ? p.x * VIDEO_WIDTH : p.x,
+                    y: p.y <= 1.5 ? p.y * VIDEO_HEIGHT : p.y
+                }));
+                setEditablePoints(absolutePoints);
             } else {
                 setEditablePoints([
                     { x: 100, y: 100 },
@@ -73,19 +80,42 @@ const MonitorScreen = () => {
             }
             setEditMode(true);
         } else {
-            updateZone({ safe_zone: editablePoints });
-            setEditMode(false);
+            // Only save if it's a valid polygon (at least 3 points) or empty
+            if (editablePoints.length === 0 || editablePoints.length > 2) {
+                // Convert to relative before saving
+                const relativePoints = editablePoints.map(p => ({
+                    x: Number((p.x / VIDEO_WIDTH).toFixed(4)),
+                    y: Number((p.y / VIDEO_HEIGHT).toFixed(4))
+                }));
+                updateZone({ safe_zone: relativePoints });
+                setEditMode(false);
+            } else {
+                alert("A fence must have at least 3 points, or be completely clear.");
+            }
         }
+    };
+
+    const addNode = () => {
+        // Add a node roughly in the middle of the screen
+        const newPoint = {
+            x: Math.round(VIDEO_WIDTH / 2),
+            y: Math.round(VIDEO_HEIGHT / 2)
+        };
+        setEditablePoints([...editablePoints, newPoint]);
+    };
+
+    const clearFence = () => {
+        setEditablePoints([]);
     };
 
     const handlePointMove = (index, screenX, screenY) => {
         const backendX = (screenX - translateX) / scale;
         const backendY = (screenY - translateY) / scale;
-        
+
         const newPoints = [...editablePoints];
-        newPoints[index] = { 
-            x: Math.round(Math.max(0, Math.min(VIDEO_WIDTH, backendX))), 
-            y: Math.round(Math.max(0, Math.min(VIDEO_HEIGHT, backendY))) 
+        newPoints[index] = {
+            x: Math.round(Math.max(0, Math.min(VIDEO_WIDTH, backendX))),
+            y: Math.round(Math.max(0, Math.min(VIDEO_HEIGHT, backendY)))
         };
         setEditablePoints(newPoints);
     };
@@ -102,8 +132,12 @@ const MonitorScreen = () => {
     const pointsToSvgPoints = (points) => {
         if (!points) return "";
         return points.map(p => {
-            const x = p.x * scale + translateX;
-            const y = p.y * scale + translateY;
+            // Check if point is relative or absolute (legacy). 
+            // In display time, we convert backend's (which are relative) to screen space
+            const rawX = p.x <= 1.5 ? p.x * VIDEO_WIDTH : p.x;
+            const rawY = p.y <= 1.5 ? p.y * VIDEO_HEIGHT : p.y;
+            const x = rawX * scale + translateX;
+            const y = rawY * scale + translateY;
             return `${x},${y}`;
         }).join(' ');
     };
@@ -261,18 +295,36 @@ const MonitorScreen = () => {
                         </View>
 
                         {/* Action Bar */}
-                        <View className="flex-row space-x-4">
-                            <TouchableOpacity
-                                onPress={toggleEditMode}
-                                className={`flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${editMode
-                                        ? 'bg-cyan-600 border-cyan-800'
-                                        : 'bg-indigo-600 border-indigo-800'
-                                    }`}
-                            >
-                                <Text className="text-white font-bold tracking-wider text-sm">
-                                    {editMode ? 'SAVE CONFIG' : 'EDIT FENCE'}
-                                </Text>
-                            </TouchableOpacity>
+                        <View className="flex-row space-x-2">
+                            {editMode ? (
+                                <>
+                                    <TouchableOpacity
+                                        onPress={clearFence}
+                                        className="flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 bg-rose-600 border-rose-800"
+                                    >
+                                        <Text className="text-white font-bold tracking-wider text-xs">CLEAR</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={addNode}
+                                        className="flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 bg-indigo-600 border-indigo-800"
+                                    >
+                                        <Text className="text-white font-bold tracking-wider text-xs">+ NODE</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={toggleEditMode}
+                                        className="flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 bg-emerald-500 border-emerald-700"
+                                    >
+                                        <Text className="text-white font-bold tracking-wider text-xs">SAVE</Text>
+                                    </TouchableOpacity>
+                                </>
+                            ) : (
+                                <TouchableOpacity
+                                    onPress={toggleEditMode}
+                                    className="flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 bg-indigo-600 border-indigo-800 w-full"
+                                >
+                                    <Text className="text-white font-bold tracking-wider text-sm">EDIT FENCE</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 </View>

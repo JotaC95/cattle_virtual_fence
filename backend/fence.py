@@ -27,9 +27,11 @@ class ZoneManager:
         with open(self.zone_file, "w") as f:
             json.dump(zones, f)
 
-    def check_status(self, point):
+    def check_status(self, point, frame_width=640, frame_height=480):
         """
         Check if a point (x, y) is inside the safe zone.
+        Point is in absolute pixels depending on the frame.
+        safe_zone points are now expected to be relative (0.0 to 1.0).
         Returns: status_string, color_bgr
         """
         safe_zone_points = self.zones.get("safe_zone", [])
@@ -37,15 +39,24 @@ class ZoneManager:
         if len(safe_zone_points) < 3:
             return "NO_ZONE", (200, 200, 200)
 
-        poly_points = [(p["x"], p["y"]) for p in safe_zone_points]
+        # Scale relative points to match the current frame dimensions
+        poly_points = []
+        for p in safe_zone_points:
+            # If coordinates are already absolute (legacy), fallback gracefully.
+            # But assume they are relative <= 1.0 by default.
+            x_scaled = p["x"] * frame_width if p["x"] <= 1.5 else p["x"]
+            y_scaled = p["y"] * frame_height if p["y"] <= 1.5 else p["y"]
+            poly_points.append((x_scaled, y_scaled))
+
         polygon = Polygon(poly_points)
         pt = Point(point)
 
         if polygon.contains(pt):
             # Check distance to boundary for WARNING
             dist = polygon.exterior.distance(pt)
-            # Threshold hardcoded for now, could be dynamic
-            if dist < 50: 
+            # Threshold relative to frame size, e.g. 5% of width
+            warning_threshold = frame_width * 0.05
+            if dist < warning_threshold: 
                 return "WARNING", self.STATUS_COLORS["WARNING"]
             return "INTERNAL", self.STATUS_COLORS["INTERNAL"]
         else:

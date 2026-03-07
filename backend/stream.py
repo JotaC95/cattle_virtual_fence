@@ -49,11 +49,12 @@ class CattleVideoTrack(VideoStreamTrack):
         
         # Process logic
         processed_frame, detections = self.vision.process_frame(frame)
+        frame_h, frame_w = processed_frame.shape[:2]
         
         # Check fences and prepare payload
         cow_states = []
         for det in detections:
-            status, color = self.fence.check_status(det["centroid"])
+            status, color = self.fence.check_status(det["centroid"], frame_width=frame_w, frame_height=frame_h)
             det["status"] = status
             cow_states.append(det)
             
@@ -67,7 +68,13 @@ class CattleVideoTrack(VideoStreamTrack):
         # Draw Zone on video for visual confirmation
         safe_zone = self.fence.zones.get("safe_zone", [])
         if len(safe_zone) > 0:
-            pts_poly = np.array([[p["x"], p["y"]] for p in safe_zone], np.int32)
+            pts_scaled = []
+            for p in safe_zone:
+                px = int(p["x"] * frame_w if p["x"] <= 1.5 else p["x"])
+                py = int(p["y"] * frame_h if p["y"] <= 1.5 else p["y"])
+                pts_scaled.append([px, py])
+                
+            pts_poly = np.array(pts_scaled, np.int32)
             pts_poly = pts_poly.reshape((-1, 1, 2))
             cv2.polylines(processed_frame, [pts_poly], True, (0, 255, 0), 2)
 
