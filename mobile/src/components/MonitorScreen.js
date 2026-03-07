@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, PanResponder } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, PanResponder, Vibration } from 'react-native';
 import { RTCView } from 'react-native-webrtc';
 import Svg, { Polygon, Rect, Text as SvgText, Circle, Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -46,17 +46,25 @@ const DraggablePoint = ({ x, y, onMove }) => {
 
 const MonitorScreen = () => {
     const insets = useSafeAreaInsets();
-    const { remoteStream, pcState, updateZone } = useCattleConnection();
-    const { zones, cows, isConnected } = useStore();
+    const { remoteStream, pcState, updateZone, updateTargets } = useCattleConnection();
+    const { zones, cows, isConnected, setIsEditing, targetClass, setTargetClass } = useStore();
     const [editMode, setEditMode] = useState(false);
     const [editablePoints, setEditablePoints] = useState([]);
 
-    // Calculate scaling
-    // We want to fill the screen (cover)
-    // Scale must be based on the dimension that needs to stretch more
-    const scale = Math.max(SCREEN_WIDTH / VIDEO_WIDTH, SCREEN_HEIGHT / VIDEO_HEIGHT);
+    // Trigger vibration if there is an OUT breach
+    useEffect(() => {
+        const hasBreach = cows.some(c => c.status === 'OUT');
+        if (hasBreach) {
+            // Vibrate pattern: 500ms on, 500ms off, 500ms on
+            Vibration.vibrate([0, 500, 500, 500]);
+        }
+    }, [cows]);
 
-    // Center the video
+    // Calculate scaling for 'contain' instead of 'cover'
+    // This ensures no part of the video is cropped out.
+    const scale = Math.min(SCREEN_WIDTH / VIDEO_WIDTH, SCREEN_HEIGHT / VIDEO_HEIGHT);
+
+    // Center the video within the screen bounds
     const translateX = (SCREEN_WIDTH - VIDEO_WIDTH * scale) / 2;
     const translateY = (SCREEN_HEIGHT - VIDEO_HEIGHT * scale) / 2;
 
@@ -79,6 +87,7 @@ const MonitorScreen = () => {
                 ]);
             }
             setEditMode(true);
+            setIsEditing(true);
         } else {
             // Only save if it's a valid polygon (at least 3 points) or empty
             if (editablePoints.length === 0 || editablePoints.length > 2) {
@@ -89,6 +98,7 @@ const MonitorScreen = () => {
                 }));
                 updateZone({ safe_zone: relativePoints });
                 setEditMode(false);
+                setIsEditing(false);
             } else {
                 alert("A fence must have at least 3 points, or be completely clear.");
             }
@@ -142,6 +152,16 @@ const MonitorScreen = () => {
         }).join(' ');
     };
 
+    const handleFilterChange = (filterType) => {
+        let newClasses = [];
+        if (filterType === 'COW') newClasses = [19];
+        else if (filterType === 'SHEEP') newClasses = [18];
+        else newClasses = [19, 18]; // BOTH
+
+        setTargetClass(newClasses);
+        updateTargets(newClasses);
+    };
+
     // Calculate Stats
     const totalCows = cows.length;
     const warningCows = cows.filter(c => c.status === 'WARNING').length;
@@ -158,7 +178,7 @@ const MonitorScreen = () => {
                     <RTCView
                         streamURL={remoteStream.toURL()}
                         style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
-                        objectFit="cover"
+                        objectFit="contain"
                         zOrder={0}
                     />
                 ) : (
@@ -277,6 +297,30 @@ const MonitorScreen = () => {
                 <View className="px-6 mb-4">
                     {/* Glass Panel */}
                     <View className="bg-gray-900/90 rounded-3xl p-5 border border-gray-800 shadow-2xl backdrop-blur-xl">
+
+                        {/* Filter Row */}
+                        {!editMode && (
+                            <View className="flex-row bg-gray-800 rounded-xl p-1 mb-4 border border-gray-700">
+                                <TouchableOpacity
+                                    onPress={() => handleFilterChange('COW')}
+                                    className={`flex-1 py-2 rounded-lg items-center ${targetClass.length === 1 && targetClass[0] === 19 ? 'bg-indigo-600' : ''}`}
+                                >
+                                    <Text className={`text-xs font-bold ${targetClass.length === 1 && targetClass[0] === 19 ? 'text-white' : 'text-gray-400'}`}>COWS</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => handleFilterChange('SHEEP')}
+                                    className={`flex-1 py-2 rounded-lg items-center ${targetClass.length === 1 && targetClass[0] === 18 ? 'bg-indigo-600' : ''}`}
+                                >
+                                    <Text className={`text-xs font-bold ${targetClass.length === 1 && targetClass[0] === 18 ? 'text-white' : 'text-gray-400'}`}>SHEEP</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => handleFilterChange('BOTH')}
+                                    className={`flex-1 py-2 rounded-lg items-center ${targetClass.length === 2 ? 'bg-indigo-600' : ''}`}
+                                >
+                                    <Text className={`text-xs font-bold ${targetClass.length === 2 ? 'text-white' : 'text-gray-400'}`}>BOTH</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
 
                         {/* Metrics Row */}
                         <View className="flex-row justify-between mb-6">

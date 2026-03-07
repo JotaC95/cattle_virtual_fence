@@ -16,6 +16,11 @@ class VisionEngine:
         # but for this MVP, we use YOLO's built-in tracker or simple logic.
         self.track_history = {}
 
+    def set_classes(self, class_ids):
+        """Update the target classes for YOLO filtering"""
+        self.target_classes = class_ids
+        print(f"Vision targets updated to: {self.target_classes}")
+
     def process_frame(self, frame):
         """
         Run inference on a frame and return results.

@@ -10,6 +10,12 @@ const useStore = create((set, get) => ({
     zones: { safe_zone: [] },
     setZones: (zones) => set({ zones }),
 
+    isEditing: false,
+    setIsEditing: (status) => set({ isEditing: status }),
+
+    targetClass: [19, 18], // Default to both Cow (19) and Sheep (18)
+    setTargetClass: (classes) => set({ targetClass: classes }),
+
     cows: [],
     setCows: (cows) => set({ cows }),
 

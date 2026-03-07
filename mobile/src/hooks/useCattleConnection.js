@@ -13,6 +13,7 @@ const useCattleConnection = () => {
     const { serverUrl, setIsConnected, setZones, setCows } = useStore();
     const socketRef = useRef(null);
     const pcRef = useRef(null);
+    const reconnectTimeoutRef = useRef(null);
     const [remoteStream, setRemoteStream] = useState(null);
     const [pcState, setPcState] = useState("new");
 
@@ -35,16 +36,21 @@ const useCattleConnection = () => {
         socket.on('disconnect', () => {
             console.log('Socket Disconnected');
             setIsConnected(false);
+            setPcState("disconnected");
         });
 
         socket.on('zones', (data) => {
-            setZones(data);
+            if (!useStore.getState().isEditing) {
+                setZones(data);
+            }
         });
 
         socket.on('state', (payload) => {
             // payload = { cows: [...], zones: ... }
             if (payload.cows) setCows(payload.cows);
-            // We can optional sync zones here too or stick to explicit 'update_zone' events
+            if (payload.zones && !useStore.getState().isEditing) {
+                setZones(payload.zones);
+            }
         });
 
         socket.on('ice_candidate', async (data) => {
@@ -60,6 +66,7 @@ const useCattleConnection = () => {
 
         // Cleanup
         return () => {
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
             socket.disconnect();
             if (pcRef.current) {
                 pcRef.current.close();
@@ -68,6 +75,13 @@ const useCattleConnection = () => {
     }, [serverUrl]);
 
     const startWebRTC = async () => {
+        if (pcRef.current) {
+            pcRef.current.close();
+        }
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+        }
+
         const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
         const pc = new RTCPeerConnection(configuration);
         pcRef.current = pc;
@@ -81,6 +95,15 @@ const useCattleConnection = () => {
         pc.oniceconnectionstatechange = (event) => {
             console.log("ICE State:", pc.iceConnectionState);
             setPcState(pc.iceConnectionState);
+
+            if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                console.log("WebRTC Disconnected. Attempting reconnect in 3s...");
+                reconnectTimeoutRef.current = setTimeout(() => {
+                    if (socketRef.current && socketRef.current.connected) {
+                        startWebRTC();
+                    }
+                }, 3000);
+            }
         };
 
         pc.ontrack = (event) => {
@@ -117,7 +140,13 @@ const useCattleConnection = () => {
         }
     };
 
-    return { remoteStream, updateZone, pcState };
+    const updateTargets = (classes) => {
+        if (socketRef.current) {
+            socketRef.current.emit("set_targets", classes);
+        }
+    };
+
+    return { remoteStream, updateZone, updateTargets, pcState };
 };
 
 export default useCattleConnection;

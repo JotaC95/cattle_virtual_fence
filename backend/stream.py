@@ -2,6 +2,7 @@ import cv2
 import asyncio
 import time
 import numpy as np
+import concurrent.futures
 from av import VideoFrame
 from aiortc import VideoStreamTrack
 from vision import VisionEngine
@@ -24,6 +25,9 @@ class CattleVideoTrack(VideoStreamTrack):
         # Performance control
         self.last_process_time = 0
         self.process_interval = 1.0 / 30  # Cap at 30 FPS processing if possible
+        
+        # Thread pool for YOLO
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     async def recv(self):
         pts, time_base = await self.next_timestamp()
@@ -47,8 +51,13 @@ class CattleVideoTrack(VideoStreamTrack):
         # Process frame
         current_time = time.time()
         
-        # Process logic
-        processed_frame, detections = self.vision.process_frame(frame)
+        # Process logic (in background thread so it doesn't block WebRTC socketio pings)
+        loop = asyncio.get_event_loop()
+        processed_frame, detections = await loop.run_in_executor(
+            self.executor, 
+            self.vision.process_frame, 
+            frame
+        )
         frame_h, frame_w = processed_frame.shape[:2]
         
         # Check fences and prepare payload
@@ -105,3 +114,4 @@ class CattleVideoTrack(VideoStreamTrack):
 
     def stop(self):
         self.cap.release()
+        self.executor.shutdown(wait=False)

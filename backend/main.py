@@ -38,8 +38,20 @@ pcs = {}
 async def on_shutdown(app):
     coros = [pc.close() for pc in pcs.values()]
     await asyncio.gather(*coros)
+    pcs.clear()
 
 app.on_shutdown.append(on_shutdown)
+
+async def cleanup_pc(sid):
+    if sid in pcs:
+        pc = pcs[sid]
+        logger.info(f"Cleaning up PC for {sid}")
+        # Explicitly stop tracks to free memory and camera usage
+        for sender in pc.getSenders():
+            if sender.track:
+                sender.track.stop()
+        await pc.close()
+        del pcs[sid]
 
 @sio.event
 async def connect(sid, environ):
@@ -51,15 +63,24 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     logger.info(f"Client disconnected: {sid}")
-    if sid in pcs:
-        await pcs[sid].close()
-        del pcs[sid]
+    await cleanup_pc(sid)
 
 @sio.event
 async def update_zone(sid, data):
     logger.info(f"Updating zones: {data}")
     zone_manager.save_zones(data)
     await sio.emit("zones", zone_manager.zones) # Broadcast
+
+@sio.event
+async def set_targets(sid, classes):
+    logger.info(f"Setting detection targets to: {classes}")
+    if sid in pcs:
+        pc = pcs[sid]
+        for sender in pc.getSenders():
+            if sender.track and hasattr(sender.track, 'vision'):
+                sender.track.vision.set_classes(classes)
+    # Also optionally broadcast or confirm back if needed
+    await sio.emit("message", {"status": f"targets updated to {classes}"}, room=sid)
 
 @sio.event
 async def ice_candidate(sid, data):
@@ -97,11 +118,8 @@ async def offer(sid, params):
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
         logger.info(f"Connection state is {pc.connectionState}")
-        if pc.connectionState == "failed":
-            await pc.close()
-            # pcs popping handled in disconnect or here
-            if sid in pcs: 
-                del pcs[sid]
+        if pc.connectionState in ["failed", "closed", "disconnected"]:
+            await cleanup_pc(sid)
 
     # Video Track Logic
     # Check for file
