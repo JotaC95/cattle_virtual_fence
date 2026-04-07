@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import json
 import logging
@@ -9,7 +8,7 @@ import uuid
 from aiohttp import web
 import socketio
 from aiortc import RTCPeerConnection, RTCSessionDescription
-from aiortc.contrib.media import MediaPlayer, MediaRelay
+from aiortc.contrib.media import MediaRelay
 from aiortc.sdp import candidate_from_sdp
 
 from stream import CattleVideoTrack
@@ -19,8 +18,19 @@ from fence import ZoneManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CattleBackend")
 
-# Global Zone Manager
+# --- Auth config (set AUTH_TOKEN env var to enable, empty = disabled) ---
+AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "")
+AUTH_ENABLED = bool(AUTH_TOKEN)
+if AUTH_ENABLED:
+    logger.info("Token authentication ENABLED")
+else:
+    logger.warning("AUTH_TOKEN not set — authentication DISABLED (set AUTH_TOKEN env var to enable)")
+
+# Global Zone Manager (single shared instance)
 zone_manager = ZoneManager()
+
+# MediaRelay: shares one video source across all WebRTC clients
+relay = MediaRelay()
 
 # SocketIO Server (Async)
 sio = socketio.AsyncServer(cors_allowed_origins="*", async_mode='aiohttp')
@@ -35,6 +45,22 @@ app.router.add_get('/', index)
 # WebRTC Connections: Map sid -> pc
 pcs = {}
 
+# Shared video track (created once, relayed to all clients)
+_shared_track = None
+
+def get_shared_track(async_emit):
+    """Return the single shared CattleVideoTrack, creating it if needed."""
+    global _shared_track
+    if _shared_track is None:
+        video_source = "cow_test.mp4" if os.path.exists("cow_test.mp4") else 0
+        logger.info(f"Creating shared video track (source={video_source})")
+        _shared_track = CattleVideoTrack(
+            source=video_source,
+            socket_emit=async_emit,
+            zone_manager=zone_manager,
+        )
+    return _shared_track
+
 async def on_shutdown(app):
     coros = [pc.close() for pc in pcs.values()]
     await asyncio.gather(*coros)
@@ -43,9 +69,21 @@ app.on_shutdown.append(on_shutdown)
 
 @sio.event
 async def connect(sid, environ):
+    # --- Token auth ---
+    if AUTH_ENABLED:
+        # Token can be passed as query param: ?token=<value>
+        query_string = environ.get("QUERY_STRING", "")
+        token = ""
+        for part in query_string.split("&"):
+            if part.startswith("token="):
+                token = part[len("token="):]
+                break
+        if token != AUTH_TOKEN:
+            logger.warning(f"Rejected connection from {sid} — invalid token")
+            raise ConnectionRefusedError("Invalid or missing authentication token")
+
     logger.info(f"Client connected: {sid}")
     await sio.emit("message", {"status": "connected"}, room=sid)
-    # Send current zones
     await sio.emit("zones", zone_manager.zones, room=sid)
 
 @sio.event
@@ -57,9 +95,13 @@ async def disconnect(sid):
 
 @sio.event
 async def update_zone(sid, data):
-    logger.info(f"Updating zones: {data}")
-    zone_manager.save_zones(data)
-    await sio.emit("zones", zone_manager.zones) # Broadcast
+    try:
+        zone_manager.save_zones(data)
+        logger.info(f"Zones updated by {sid}: {data}")
+        await sio.emit("zones", zone_manager.zones)
+    except ValueError as e:
+        logger.warning(f"Invalid zone data from {sid}: {e}")
+        await sio.emit("error", {"message": str(e)}, room=sid)
 
 @sio.event
 async def ice_candidate(sid, data):
@@ -70,9 +112,8 @@ async def ice_candidate(sid, data):
                 candidate_str = data.get('candidate')
                 sdpMid = data.get('sdpMid')
                 sdpMLineIndex = data.get('sdpMLineIndex')
-                
+
                 if candidate_str:
-                    logger.info(f"Adding ICE candidate: {candidate_str}")
                     can = candidate_from_sdp(candidate_str)
                     can.sdpMid = sdpMid
                     can.sdpMLineIndex = sdpMLineIndex
@@ -86,60 +127,36 @@ async def offer(sid, params):
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
     pc = RTCPeerConnection()
-    pc_id = "PeerConnection(%s)" % uuid.uuid4()
     pcs[sid] = pc
 
-    @pc.on("icecandidate")
-    def on_icecandidate(candidate):
-        # Trickle ICE can be handled here if client supports it
-        pass
-
-    @pc.on("connectionstatechange")
-    async def on_connectionstatechange():
-        logger.info(f"Connection state is {pc.connectionState}")
-        if pc.connectionState == "failed":
-            await pc.close()
-            # pcs popping handled in disconnect or here
-            if sid in pcs: 
-                del pcs[sid]
-
-    # Video Track Logic
-    # Check for file
-    video_source = "cow_test.mp4" if os.path.exists("cow_test.mp4") else None
-    
-    # Define a helper to emit events from the track
-    # CattleVideoTrack is synchronous in 'recv' usually, but can schedule async emits
-    # We pass a thread-safe or loop-safe emit wrapper if needed, 
-    # but since we are in asyncio now, we can just use sio.emit.
-    # However, 'recv' in aiortc runs in a thread executor by default? 
-    # Actually aiortc MediaStreamTrack.recv is async.
-    
-    # We need to make sure stream.py is async compatible.
-    # Checking stream.py... It inherited from MediaStreamTrack and recv() is async def.
-    # So we can await sio.emit inside it if we pass the async function.
-    
     async def async_emit(event, data):
         await sio.emit(event, data)
 
-    # Use webcam 0 if no file. In Docker, requires --device mapping.
-    # If neither, we might fail unless we implement Synthetic.
-    # For now, let's assume usage of file or cam.
-    
-    if video_source: 
-        logger.info(f"Using video file: {video_source}")
-        track = CattleVideoTrack(source=video_source, socket_emit=async_emit)
-    else:
-        logger.info("Using Camera (Index 0)")
-        track = CattleVideoTrack(source=0, socket_emit=async_emit)
-    
-    track.fence = zone_manager
-    pc.addTrack(track)
+    # Trickle ICE: send candidates to client as they are gathered
+    @pc.on("icecandidate")
+    async def on_icecandidate(candidate):
+        if candidate:
+            await sio.emit("ice_candidate", {
+                "candidate": candidate.to_sdp(),
+                "sdpMid": candidate.sdpMid,
+                "sdpMLineIndex": candidate.sdpMLineIndex,
+            }, room=sid)
+
+    @pc.on("connectionstatechange")
+    async def on_connectionstatechange():
+        logger.info(f"[{sid}] Connection state: {pc.connectionState}")
+        if pc.connectionState in ("failed", "closed"):
+            await pc.close()
+            if sid in pcs:
+                del pcs[sid]
+
+    # Use the shared track (relayed so YOLO only runs once)
+    track = get_shared_track(async_emit)
+    pc.addTrack(relay.subscribe(track))
 
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
-    
-    logger.info(f"Generated Answer SDP: {pc.localDescription.sdp}")
 
     return {
         "sdp": pc.localDescription.sdp,
@@ -147,4 +164,18 @@ async def offer(sid, params):
     }
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=5001)
+    # --- TLS (optional) ---
+    # Set SSL_CERT and SSL_KEY env vars to enable HTTPS/WSS
+    ssl_cert = os.environ.get("SSL_CERT", "")
+    ssl_key = os.environ.get("SSL_KEY", "")
+    ssl_context = None
+    if ssl_cert and ssl_key:
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(ssl_cert, ssl_key)
+        logger.info("TLS enabled")
+    else:
+        logger.warning("SSL_CERT/SSL_KEY not set — running without TLS (HTTP/WS)")
+
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "5001"))
+    web.run_app(app, host=host, port=port, ssl_context=ssl_context)
