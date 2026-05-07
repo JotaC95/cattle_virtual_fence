@@ -13,6 +13,9 @@ const useStore = create((set, get) => ({
     cows: [],
     setCows: (cows) => set({ cows }),
 
+    persons: [],
+    setPersons: (persons) => set({ persons }),
+
     updateZone: (newZones) => {
         set({ zones: newZones });
         // Logic to actually emit socket event will be in the component or service hook

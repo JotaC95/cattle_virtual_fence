@@ -46,7 +46,7 @@ const DraggablePoint = ({ x, y, onMove }) => {
 const MonitorScreen = () => {
     const insets = useSafeAreaInsets();
     const { remoteStream, pcState, updateZone } = useCattleConnection();
-    const { zones, cows, isConnected } = useStore();
+    const { zones, cows, persons, isConnected } = useStore();
     const [editMode, setEditMode] = useState(false);
     const [editablePoints, setEditablePoints] = useState([]);
 
@@ -164,14 +164,12 @@ const MonitorScreen = () => {
 
                         return (
                             <React.Fragment key={cow.id}>
-                                {/* Corner Brackets Look */}
                                 <Rect
                                     x={x} y={y} width={w} height={h}
                                     fill="transparent"
                                     stroke={color}
                                     strokeWidth="2"
                                 />
-                                {/* Label Tag */}
                                 <Rect
                                     x={x} y={y - 20} width={60} height={20}
                                     fill={color}
@@ -185,6 +183,40 @@ const MonitorScreen = () => {
                                     fontWeight="bold"
                                 >
                                     ID {cow.id}
+                                </SvgText>
+                            </React.Fragment>
+                        );
+                    })}
+
+                    {/* Person Targets */}
+                    {persons && persons.map(person => {
+                        const x = person.bbox[0] * scale + translateX;
+                        const y = person.bbox[1] * scale + translateY;
+                        const w = (person.bbox[2] - person.bbox[0]) * scale;
+                        const h = (person.bbox[3] - person.bbox[1]) * scale;
+
+                        return (
+                            <React.Fragment key={`person-${person.id}`}>
+                                <Rect
+                                    x={x} y={y} width={w} height={h}
+                                    fill="rgba(59, 130, 246, 0.1)"
+                                    stroke="#3b82f6"
+                                    strokeWidth="2"
+                                    strokeDasharray="6, 3"
+                                />
+                                <Rect
+                                    x={x} y={y - 20} width={75} height={20}
+                                    fill="#3b82f6"
+                                    opacity={0.85}
+                                />
+                                <SvgText
+                                    x={x + 5}
+                                    y={y - 6}
+                                    fill="white"
+                                    fontSize="12"
+                                    fontWeight="bold"
+                                >
+                                    PERSON {person.id}
                                 </SvgText>
                             </React.Fragment>
                         );
@@ -257,6 +289,10 @@ const MonitorScreen = () => {
                             <View className="items-center">
                                 <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Breach</Text>
                                 <Text className="text-red-500 text-2xl font-light">{outCows}</Text>
+                            </View>
+                            <View className="items-center">
+                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Persons</Text>
+                                <Text className="text-blue-400 text-2xl font-light">{persons ? persons.length : 0}</Text>
                             </View>
                         </View>
 

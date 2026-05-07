@@ -10,7 +10,7 @@ import {
 import useStore from '../store/useStore';
 
 const useCattleConnection = () => {
-    const { serverUrl, setIsConnected, setZones, setCows } = useStore();
+    const { serverUrl, setIsConnected, setZones, setCows, setPersons } = useStore();
     const socketRef = useRef(null);
     const pcRef = useRef(null);
     const [remoteStream, setRemoteStream] = useState(null);
@@ -42,9 +42,8 @@ const useCattleConnection = () => {
         });
 
         socket.on('state', (payload) => {
-            // payload = { cows: [...], zones: ... }
             if (payload.cows) setCows(payload.cows);
-            // We can optional sync zones here too or stick to explicit 'update_zone' events
+            if (payload.persons) setPersons(payload.persons);
         });
 
         socket.on('ice_candidate', async (data) => {
