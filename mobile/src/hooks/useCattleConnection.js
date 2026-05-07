@@ -18,6 +18,7 @@ const useCattleConnection = () => {
         setPersons,
         setFenceActive,
         setAllowedCowIds,
+        addAlert,
     } = useStore();
     const socketRef = useRef(null);
     const pcRef = useRef(null);
@@ -57,6 +58,9 @@ const useCattleConnection = () => {
             if (payload.cows) setCows(payload.cows);
             if (payload.persons) setPersons(payload.persons);
         });
+
+        socket.on('actuator_event', (data) => addAlert(data));
+        socket.on('alert', (data) => addAlert(data));
 
         socket.on('ice_candidate', async (data) => {
             try {

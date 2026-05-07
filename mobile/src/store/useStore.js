@@ -22,6 +22,14 @@ const useStore = create((set, get) => ({
     allowedCowIds: [],
     setAllowedCowIds: (ids) => set({ allowedCowIds: ids }),
 
+    alerts: [],
+    addAlert: (alert) => set(state => ({
+        alerts: [{ ...alert, _id: Date.now() }, ...state.alerts].slice(0, 10),
+    })),
+    dismissAlert: (id) => set(state => ({
+        alerts: state.alerts.filter(a => a._id !== id),
+    })),
+
     updateZone: (newZones) => {
         set({ zones: newZones });
         // Logic to actually emit socket event will be in the component or service hook

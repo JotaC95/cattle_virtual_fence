@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, PanResponder } from 'react-native';
 import { RTCView } from 'react-native-webrtc';
 import Svg, { Polygon, Rect, Text as SvgText, Circle, Path } from 'react-native-svg';
@@ -66,12 +66,54 @@ const DraggablePoint = ({ x, y, onMove, onRemove, canRemove }) => {
 };
 
 // ------------------------------------------------------------------ //
+// AlertBanner — auto-dismisses after 8 s                              //
+// ------------------------------------------------------------------ //
+const AlertBanner = ({ alert, onDismiss }) => {
+    useEffect(() => {
+        const t = setTimeout(onDismiss, 8000);
+        return () => clearTimeout(t);
+    }, []);
+
+    const isPerson = alert.type === 'person_alert';
+    const bgColor = isPerson ? '#dc2626' : (alert.action === 'activated' ? '#ea580c' : '#16a34a');
+    const icon = isPerson ? '👤' : (alert.action === 'activated' ? '⚠️' : '✅');
+    let msg;
+    if (isPerson) {
+        msg = `Person detected (${alert.count} in frame)`;
+    } else if (alert.action === 'activated') {
+        msg = `Cow #${alert.cow_id} exited the fence`;
+    } else {
+        msg = `Cow #${alert.cow_id} returned inside`;
+    }
+
+    return (
+        <View style={{
+            backgroundColor: bgColor,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            borderRadius: 12,
+            opacity: 0.93,
+        }}>
+            <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13, flex: 1 }}>
+                {icon}  {msg}
+            </Text>
+            <TouchableOpacity onPress={onDismiss} style={{ paddingLeft: 12 }}>
+                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 18 }}>×</Text>
+            </TouchableOpacity>
+        </View>
+    );
+};
+
+// ------------------------------------------------------------------ //
 // MonitorScreen                                                        //
 // ------------------------------------------------------------------ //
 const MonitorScreen = () => {
     const insets = useSafeAreaInsets();
     const { remoteStream, pcState, updateZone, toggleFence, setCowException } = useCattleConnection();
-    const { zones, cows, persons, isConnected, fenceActive, allowedCowIds } = useStore();
+    const { zones, cows, persons, isConnected, fenceActive, allowedCowIds, alerts, dismissAlert } = useStore();
     const [editMode, setEditMode] = useState(false);
     const [editablePoints, setEditablePoints] = useState([]);
 
@@ -341,6 +383,19 @@ const MonitorScreen = () => {
                         </Text>
                     </View>
                 </View>
+
+                {/* Alert Banners */}
+                {alerts.length > 0 && (
+                    <View style={{ marginHorizontal: 16, gap: 6 }}>
+                        {alerts.slice(0, 3).map(alert => (
+                            <AlertBanner
+                                key={alert._id}
+                                alert={alert}
+                                onDismiss={() => dismissAlert(alert._id)}
+                            />
+                        ))}
+                    </View>
+                )}
 
                 <View className="flex-1" />
 

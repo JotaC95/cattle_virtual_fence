@@ -6,6 +6,7 @@ from av import VideoFrame
 from aiortc import VideoStreamTrack
 from vision import VisionEngine
 from fence import ZoneManager
+from actuator import ActuatorManager
 
 # Colors for bounding boxes drawn on video (BGR)
 PERSON_COLOR = (0, 140, 255)
@@ -24,6 +25,7 @@ class CattleVideoTrack(VideoStreamTrack):
         self.cap = cv2.VideoCapture(source)
         self.vision = VisionEngine()
         self.fence = ZoneManager()
+        self.actuator = ActuatorManager()
         self.socket_emit = socket_emit
 
         # Performance control
@@ -70,6 +72,13 @@ class CattleVideoTrack(VideoStreamTrack):
                 cv2.rectangle(processed_frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(processed_frame, f"ID: {det['id']} {status}", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        # Fire actuator events on fence-crossing transitions and person detections
+        if self.socket_emit:
+            for det in cow_states:
+                await self.actuator.on_cow_status(det["id"], det["status"], self.socket_emit)
+            person_ids = [p["id"] for p in person_states]
+            await self.actuator.on_persons(person_ids, self.socket_emit)
 
         # Draw safe zone polygon
         safe_zone = self.fence.zones.get("safe_zone", [])

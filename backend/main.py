@@ -14,13 +14,15 @@ from aiortc.sdp import candidate_from_sdp
 
 from stream import CattleVideoTrack
 from fence import ZoneManager
+from actuator import ActuatorManager
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CattleBackend")
 
-# Global Zone Manager
+# Global managers — shared across all WebRTC tracks
 zone_manager = ZoneManager()
+actuator_manager = ActuatorManager()
 
 # SocketIO Server (Async)
 sio = socketio.AsyncServer(cors_allowed_origins="*", async_mode='aiohttp')
@@ -73,6 +75,13 @@ async def set_cow_exception(sid, data):
     zone_manager.set_allowed(int(data["cow_id"]), bool(data["allowed"]))
     logger.info(f"Allowed IDs: {zone_manager.allowed_ids}")
     await sio.emit("fence_config", zone_manager.fence_config())
+
+@sio.event
+async def set_webhook(sid, data):
+    # data = {"url": "https://..."}
+    actuator_manager.webhook_url = data.get("url", "")
+    logger.info(f"Webhook URL updated: {actuator_manager.webhook_url!r}")
+    await sio.emit("message", {"status": "webhook_updated"}, room=sid)
 
 @sio.event
 async def ice_candidate(sid, data):
@@ -146,6 +155,7 @@ async def offer(sid, params):
         track = CattleVideoTrack(source=0, socket_emit=async_emit)
     
     track.fence = zone_manager
+    track.actuator = actuator_manager
     pc.addTrack(track)
 
     await pc.setRemoteDescription(offer)
