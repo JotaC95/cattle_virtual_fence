@@ -76,7 +76,9 @@ class CattleVideoTrack(VideoStreamTrack):
         # Fire actuator events on fence-crossing transitions and person detections
         if self.socket_emit:
             for det in cow_states:
-                await self.actuator.on_cow_status(det["id"], det["status"], self.socket_emit)
+                await self.actuator.on_cow_status(
+                    det["id"], det["status"], self.socket_emit, centroid=det["centroid"]
+                )
             person_ids = [p["id"] for p in person_states]
             await self.actuator.on_persons(person_ids, self.socket_emit)
 

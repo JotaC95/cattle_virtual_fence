@@ -19,6 +19,8 @@ const useCattleConnection = () => {
         setFenceActive,
         setAllowedCowIds,
         addAlert,
+        setMemorySummary,
+        setMemoryResults,
     } = useStore();
     const socketRef = useRef(null);
     const pcRef = useRef(null);
@@ -61,6 +63,9 @@ const useCattleConnection = () => {
 
         socket.on('actuator_event', (data) => addAlert(data));
         socket.on('alert', (data) => addAlert(data));
+
+        socket.on('memory_summary', (data) => setMemorySummary(data.items || []));
+        socket.on('memory_response', (data) => setMemoryResults(data.results || []));
 
         socket.on('ice_candidate', async (data) => {
             try {
@@ -138,7 +143,13 @@ const useCattleConnection = () => {
         }
     };
 
-    return { remoteStream, updateZone, pcState, toggleFence, setCowException };
+    const queryMemory = (question) => {
+        if (socketRef.current) {
+            socketRef.current.emit("query_memory", { question });
+        }
+    };
+
+    return { remoteStream, updateZone, pcState, toggleFence, setCowException, queryMemory };
 };
 
 export default useCattleConnection;

@@ -15,6 +15,7 @@ from aiortc.sdp import candidate_from_sdp
 from stream import CattleVideoTrack
 from fence import ZoneManager
 from actuator import ActuatorManager
+from memory_brain import CattleBrain
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +23,8 @@ logger = logging.getLogger("CattleBackend")
 
 # Global managers — shared across all WebRTC tracks
 zone_manager = ZoneManager()
-actuator_manager = ActuatorManager()
+brain = CattleBrain()
+actuator_manager = ActuatorManager(brain=brain)
 
 # SocketIO Server (Async)
 sio = socketio.AsyncServer(cors_allowed_origins="*", async_mode='aiohttp')
@@ -49,6 +51,8 @@ async def connect(sid, environ):
     await sio.emit("message", {"status": "connected"}, room=sid)
     await sio.emit("zones", zone_manager.zones, room=sid)
     await sio.emit("fence_config", zone_manager.fence_config(), room=sid)
+    summary = brain.recent_summary(limit=8)
+    await sio.emit("memory_summary", {"items": _serialize(summary)}, room=sid)
 
 @sio.event
 async def disconnect(sid):
@@ -82,6 +86,23 @@ async def set_webhook(sid, data):
     actuator_manager.webhook_url = data.get("url", "")
     logger.info(f"Webhook URL updated: {actuator_manager.webhook_url!r}")
     await sio.emit("message", {"status": "webhook_updated"}, room=sid)
+
+@sio.event
+async def query_memory(sid, data):
+    # data = {"question": "cuántas veces cruzó la vaca 3?"}
+    question = data.get("question", "")
+    results = brain.query(question)
+    await sio.emit("memory_response", {"question": question, "results": _serialize(results)}, room=sid)
+
+def _serialize(obj):
+    """Convert engram result objects to plain dicts/strings for JSON emission."""
+    if isinstance(obj, list):
+        return [_serialize(item) for item in obj]
+    if hasattr(obj, "__dict__"):
+        return {k: _serialize(v) for k, v in obj.__dict__.items()}
+    if isinstance(obj, dict):
+        return {k: _serialize(v) for k, v in obj.items()}
+    return obj
 
 @sio.event
 async def ice_candidate(sid, data):

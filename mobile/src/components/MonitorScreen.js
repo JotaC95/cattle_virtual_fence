@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, PanResponder } from 'react-native';
+import { View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, PanResponder, ScrollView, TextInput } from 'react-native';
 import { RTCView } from 'react-native-webrtc';
 import Svg, { Polygon, Rect, Text as SvgText, Circle, Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -112,10 +112,12 @@ const AlertBanner = ({ alert, onDismiss }) => {
 // ------------------------------------------------------------------ //
 const MonitorScreen = () => {
     const insets = useSafeAreaInsets();
-    const { remoteStream, pcState, updateZone, toggleFence, setCowException } = useCattleConnection();
-    const { zones, cows, persons, isConnected, fenceActive, allowedCowIds, alerts, dismissAlert } = useStore();
+    const { remoteStream, pcState, updateZone, toggleFence, setCowException, queryMemory } = useCattleConnection();
+    const { zones, cows, persons, isConnected, fenceActive, allowedCowIds, alerts, dismissAlert, memorySummary, memoryResults } = useStore();
     const [editMode, setEditMode] = useState(false);
     const [editablePoints, setEditablePoints] = useState([]);
+    const [memoryOpen, setMemoryOpen] = useState(false);
+    const [queryText, setQueryText] = useState('');
 
     // Scaling & translation so video fills screen
     const scale = Math.max(SCREEN_WIDTH / VIDEO_WIDTH, SCREEN_HEIGHT / VIDEO_HEIGHT);
@@ -399,6 +401,67 @@ const MonitorScreen = () => {
 
                 <View className="flex-1" />
 
+                {/* Memory Panel (shown above bottom deck when open) */}
+                {memoryOpen && (
+                    <View style={{
+                        marginHorizontal: 16,
+                        marginBottom: 8,
+                        backgroundColor: 'rgba(17,10,40,0.97)',
+                        borderRadius: 20,
+                        padding: 16,
+                        borderWidth: 1,
+                        borderColor: '#7c3aed',
+                    }}>
+                        <Text style={{ color: '#c4b5fd', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                            🧠 Brain Memory
+                        </Text>
+
+                        {/* Search bar */}
+                        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+                            <TextInput
+                                value={queryText}
+                                onChangeText={setQueryText}
+                                placeholder="Ask memory… e.g. vaca 3"
+                                placeholderTextColor="#6b7280"
+                                style={{
+                                    flex: 1,
+                                    backgroundColor: '#1f1035',
+                                    color: 'white',
+                                    borderRadius: 10,
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 8,
+                                    fontSize: 12,
+                                    borderWidth: 1,
+                                    borderColor: '#4c1d95',
+                                }}
+                            />
+                            <TouchableOpacity
+                                onPress={() => { if (queryText.trim()) queryMemory(queryText.trim()); }}
+                                style={{ backgroundColor: '#7c3aed', borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center' }}
+                            >
+                                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }}>→</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Results or summary */}
+                        <ScrollView style={{ maxHeight: 160 }}>
+                            {(memoryResults !== null ? memoryResults : memorySummary).map((item, i) => {
+                                const text = typeof item === 'string' ? item : (item.content || JSON.stringify(item));
+                                return (
+                                    <Text key={i} style={{ color: '#d1d5db', fontSize: 11, marginBottom: 4 }}>
+                                        • {text}
+                                    </Text>
+                                );
+                            })}
+                            {(memoryResults !== null ? memoryResults : memorySummary).length === 0 && (
+                                <Text style={{ color: '#6b7280', fontSize: 11, fontStyle: 'italic' }}>
+                                    No memories yet. Events will appear here as they occur.
+                                </Text>
+                            )}
+                        </ScrollView>
+                    </View>
+                )}
+
                 {/* Bottom Deck */}
                 <View className="px-6 mb-4">
                     <View className="bg-gray-900/90 rounded-3xl p-5 border border-gray-800 shadow-2xl">
@@ -462,7 +525,7 @@ const MonitorScreen = () => {
                             {!editMode && (
                                 <TouchableOpacity
                                     onPress={toggleFence}
-                                    className={`px-5 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${
+                                    className={`px-4 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${
                                         fenceActive
                                             ? 'bg-green-700 border-green-900'
                                             : 'bg-gray-600 border-gray-800'
@@ -471,6 +534,25 @@ const MonitorScreen = () => {
                                     <Text className="text-white font-bold text-xs tracking-wider">
                                         {fenceActive ? 'FENCE\nON' : 'FENCE\nOFF'}
                                     </Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {/* Memory toggle (hidden in edit mode) */}
+                            {!editMode && (
+                                <TouchableOpacity
+                                    onPress={() => setMemoryOpen(v => !v)}
+                                    style={{
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 16,
+                                        borderRadius: 18,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderBottomWidth: 4,
+                                        backgroundColor: memoryOpen ? '#6d28d9' : '#4c1d95',
+                                        borderBottomColor: memoryOpen ? '#4c1d95' : '#2e1065',
+                                    }}
+                                >
+                                    <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>🧠</Text>
                                 </TouchableOpacity>
                             )}
                         </View>
