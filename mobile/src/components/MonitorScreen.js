@@ -8,11 +8,13 @@ import useStore from '../store/useStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Mock dimensions of the backend video for scaling
 const VIDEO_WIDTH = 640;
 const VIDEO_HEIGHT = 480;
 
-const DraggablePoint = ({ x, y, onMove }) => {
+// ------------------------------------------------------------------ //
+// DraggablePoint — supports drag + optional remove button             //
+// ------------------------------------------------------------------ //
+const DraggablePoint = ({ x, y, onMove, onRemove, canRemove }) => {
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => true,
@@ -27,7 +29,6 @@ const DraggablePoint = ({ x, y, onMove }) => {
 
     return (
         <View
-            {...panResponder.panHandlers}
             style={{
                 position: 'absolute',
                 left: x - 25,
@@ -38,24 +39,44 @@ const DraggablePoint = ({ x, y, onMove }) => {
                 alignItems: 'center',
             }}
         >
-            <View className="w-6 h-6 rounded-full bg-cyan-400 border-[3px] border-white shadow-xl" />
+            <View {...panResponder.panHandlers}
+                style={{ justifyContent: 'center', alignItems: 'center' }}>
+                <View className="w-6 h-6 rounded-full bg-cyan-400 border-[3px] border-white shadow-xl" />
+            </View>
+            {canRemove && (
+                <TouchableOpacity
+                    onPress={onRemove}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        width: 18,
+                        height: 18,
+                        borderRadius: 9,
+                        backgroundColor: '#ef4444',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                    }}
+                >
+                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold', lineHeight: 12 }}>×</Text>
+                </TouchableOpacity>
+            )}
         </View>
     );
 };
 
+// ------------------------------------------------------------------ //
+// MonitorScreen                                                        //
+// ------------------------------------------------------------------ //
 const MonitorScreen = () => {
     const insets = useSafeAreaInsets();
-    const { remoteStream, pcState, updateZone } = useCattleConnection();
-    const { zones, cows, persons, isConnected } = useStore();
+    const { remoteStream, pcState, updateZone, toggleFence, setCowException } = useCattleConnection();
+    const { zones, cows, persons, isConnected, fenceActive, allowedCowIds } = useStore();
     const [editMode, setEditMode] = useState(false);
     const [editablePoints, setEditablePoints] = useState([]);
 
-    // Calculate scaling
-    // We want to fill the screen (cover)
-    // Scale must be based on the dimension that needs to stretch more
+    // Scaling & translation so video fills screen
     const scale = Math.max(SCREEN_WIDTH / VIDEO_WIDTH, SCREEN_HEIGHT / VIDEO_HEIGHT);
-
-    // Center the video
     const translateX = (SCREEN_WIDTH - VIDEO_WIDTH * scale) / 2;
     const translateY = (SCREEN_HEIGHT - VIDEO_HEIGHT * scale) / 2;
 
@@ -81,21 +102,33 @@ const MonitorScreen = () => {
     const handlePointMove = (index, screenX, screenY) => {
         const backendX = (screenX - translateX) / scale;
         const backendY = (screenY - translateY) / scale;
-        
         const newPoints = [...editablePoints];
-        newPoints[index] = { 
-            x: Math.round(Math.max(0, Math.min(VIDEO_WIDTH, backendX))), 
-            y: Math.round(Math.max(0, Math.min(VIDEO_HEIGHT, backendY))) 
+        newPoints[index] = {
+            x: Math.round(Math.max(0, Math.min(VIDEO_WIDTH, backendX))),
+            y: Math.round(Math.max(0, Math.min(VIDEO_HEIGHT, backendY))),
         };
         setEditablePoints(newPoints);
     };
 
+    const addFencePoint = () => {
+        const cx = Math.round(editablePoints.reduce((s, p) => s + p.x, 0) / editablePoints.length);
+        const cy = Math.round(editablePoints.reduce((s, p) => s + p.y, 0) / editablePoints.length);
+        setEditablePoints([...editablePoints, { x: cx, y: cy }]);
+    };
+
+    const removeFencePoint = (index) => {
+        if (editablePoints.length <= 3) return;
+        setEditablePoints(editablePoints.filter((_, i) => i !== index));
+    };
+
     const getColor = (status) => {
         switch (status) {
-            case 'INTERNAL': return '#4ade80'; // green-400
-            case 'WARNING': return '#facc15'; // yellow-400
-            case 'OUT': return '#ef4444'; // red-500
-            default: return '#ffffff';
+            case 'INTERNAL': return '#4ade80';  // green-400
+            case 'WARNING':  return '#facc15';  // yellow-400
+            case 'OUT':      return '#ef4444';  // red-500
+            case 'ALLOWED':  return '#00c864';  // lime-green
+            case 'INACTIVE': return '#9ca3af';  // gray-400
+            default:         return '#ffffff';
         }
     };
 
@@ -108,11 +141,14 @@ const MonitorScreen = () => {
         }).join(' ');
     };
 
-    // Calculate Stats
+    // Stats
     const totalCows = cows.length;
     const warningCows = cows.filter(c => c.status === 'WARNING').length;
     const outCows = cows.filter(c => c.status === 'OUT').length;
-    const safetyScore = totalCows > 0 ? Math.round(((totalCows - outCows) / totalCows) * 100) : 100;
+    const allowedOutCows = cows.filter(c => c.status === 'ALLOWED').length;
+    const safetyScore = totalCows > 0
+        ? Math.round(((totalCows - outCows) / totalCows) * 100)
+        : 100;
 
     return (
         <View className="flex-1 bg-gray-900 relative">
@@ -140,15 +176,15 @@ const MonitorScreen = () => {
                 )}
             </View>
 
-            {/* 2. Augmented Reality Overlay (SVG) */}
+            {/* 2. AR Overlay (SVG) — non-interactive */}
             <View className="absolute inset-0" pointerEvents="none">
                 <Svg height="100%" width="100%">
-                    {/* Safe Zone */}
+                    {/* Safe Zone polygon */}
                     {(editMode ? editablePoints.length > 0 : (zones.safe_zone && zones.safe_zone.length > 0)) && (
                         <Polygon
                             points={pointsToSvgPoints(editMode ? editablePoints : zones.safe_zone)}
-                            fill="rgba(16, 185, 129, 0.15)" // Emerald
-                            stroke={editMode ? "#22d3ee" : "#10b981"} // Cyan or Emerald
+                            fill={fenceActive ? "rgba(16, 185, 129, 0.15)" : "rgba(120,120,120,0.10)"}
+                            stroke={editMode ? "#22d3ee" : (fenceActive ? "#10b981" : "#6b7280")}
                             strokeWidth={editMode ? "3" : "2"}
                             strokeDasharray={editMode ? "10, 5" : ""}
                         />
@@ -173,13 +209,13 @@ const MonitorScreen = () => {
                                 <Rect
                                     x={x} y={y - 20} width={60} height={20}
                                     fill={color}
-                                    opacity={0.8}
+                                    opacity={0.85}
                                 />
                                 <SvgText
                                     x={x + 5}
                                     y={y - 6}
                                     fill="black"
-                                    fontSize="12"
+                                    fontSize="11"
                                     fontWeight="bold"
                                 >
                                     ID {cow.id}
@@ -213,7 +249,7 @@ const MonitorScreen = () => {
                                     x={x + 5}
                                     y={y - 6}
                                     fill="white"
-                                    fontSize="12"
+                                    fontSize="11"
                                     fontWeight="bold"
                                 >
                                     PERSON {person.id}
@@ -224,7 +260,33 @@ const MonitorScreen = () => {
                 </Svg>
             </View>
 
-            {/* Draggable Handles for Edit Mode */}
+            {/* 3. Cow tap targets — invisible touchable areas over each cow box */}
+            {!editMode && (
+                <View className="absolute inset-0" pointerEvents="box-none">
+                    {cows.map(cow => {
+                        const screenX = cow.bbox[0] * scale + translateX;
+                        const screenY = cow.bbox[1] * scale + translateY;
+                        const w = (cow.bbox[2] - cow.bbox[0]) * scale;
+                        const h = (cow.bbox[3] - cow.bbox[1]) * scale;
+                        const isAllowed = allowedCowIds.includes(cow.id);
+                        return (
+                            <TouchableOpacity
+                                key={`tap-${cow.id}`}
+                                onPress={() => setCowException(cow.id, !isAllowed)}
+                                style={{
+                                    position: 'absolute',
+                                    left: screenX,
+                                    top: screenY,
+                                    width: w,
+                                    height: h,
+                                }}
+                            />
+                        );
+                    })}
+                </View>
+            )}
+
+            {/* 4. Draggable handles for edit mode */}
             {editMode && (
                 <View className="absolute inset-0" pointerEvents="box-none">
                     {editablePoints.map((point, index) => {
@@ -236,31 +298,43 @@ const MonitorScreen = () => {
                                 x={screenX}
                                 y={screenY}
                                 onMove={(x, y) => handlePointMove(index, x, y)}
+                                onRemove={() => removeFencePoint(index)}
+                                canRemove={editablePoints.length > 3}
                             />
                         );
                     })}
                 </View>
             )}
 
-            {/* 3. UI Layer (Controls) */}
-            <View className="flex-1" pointerEvents="box-none" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
-
+            {/* 5. UI Controls Layer */}
+            <View
+                className="flex-1"
+                pointerEvents="box-none"
+                style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+            >
                 {/* Header */}
                 <View className="flex-row justify-between items-center px-6 py-4">
                     <View>
                         <Text className="text-white font-black text-xl italic tracking-tighter">
                             CATTLE<Text className="text-blue-500">GUARD</Text>
                         </Text>
-                        <View className="flex-row items-center mt-1">
-                            <View className={`w-2 h-2 rounded-full mr-2 ${pcState === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
-                            <Text className="text-gray-400 text-[10px] uppercase font-bold">
-                                {pcState === 'connected' ? 'LIVE FEED' : pcState.toUpperCase()}
-                            </Text>
+                        <View className="flex-row items-center mt-1 space-x-3">
+                            <View className="flex-row items-center">
+                                <View className={`w-2 h-2 rounded-full mr-1 ${pcState === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                <Text className="text-gray-400 text-[10px] uppercase font-bold">
+                                    {pcState === 'connected' ? 'LIVE' : pcState.toUpperCase()}
+                                </Text>
+                            </View>
+                            {!fenceActive && (
+                                <View className="flex-row items-center bg-gray-700/80 px-2 py-0.5 rounded-full">
+                                    <Text className="text-gray-300 text-[10px] uppercase font-bold">FENCE OFF</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
 
-                    {/* Mini Stats Pill */}
-                    <View className="bg-gray-800/80 px-3 py-1.5 rounded-full border border-gray-700 flex-row items-center backdrop-blur-md">
+                    {/* Safety pill */}
+                    <View className="bg-gray-800/80 px-3 py-1.5 rounded-full border border-gray-700 flex-row items-center">
                         <Text className="text-gray-400 text-xs mr-2 font-bold">SAFETY</Text>
                         <Text className={`text-xs font-black ${safetyScore === 100 ? 'text-green-400' : 'text-yellow-400'}`}>
                             {safetyScore}%
@@ -268,27 +342,29 @@ const MonitorScreen = () => {
                     </View>
                 </View>
 
-                {/* Spacer */}
                 <View className="flex-1" />
 
                 {/* Bottom Deck */}
                 <View className="px-6 mb-4">
-                    {/* Glass Panel */}
-                    <View className="bg-gray-900/90 rounded-3xl p-5 border border-gray-800 shadow-2xl backdrop-blur-xl">
+                    <View className="bg-gray-900/90 rounded-3xl p-5 border border-gray-800 shadow-2xl">
 
                         {/* Metrics Row */}
-                        <View className="flex-row justify-between mb-6">
+                        <View className="flex-row justify-between mb-4">
                             <View className="items-center">
-                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Total Head</Text>
+                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Total</Text>
                                 <Text className="text-white text-2xl font-light">{totalCows}</Text>
                             </View>
                             <View className="items-center">
                                 <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Secure</Text>
-                                <Text className="text-green-400 text-2xl font-light">{totalCows - outCows - warningCows}</Text>
+                                <Text className="text-green-400 text-2xl font-light">{totalCows - outCows - warningCows - allowedOutCows}</Text>
                             </View>
                             <View className="items-center">
                                 <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Breach</Text>
                                 <Text className="text-red-500 text-2xl font-light">{outCows}</Text>
+                            </View>
+                            <View className="items-center">
+                                <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Allowed</Text>
+                                <Text className="text-emerald-400 text-2xl font-light">{allowedOutCows}</Text>
                             </View>
                             <View className="items-center">
                                 <Text className="text-gray-500 text-[10px] uppercase font-bold mb-1">Persons</Text>
@@ -296,19 +372,52 @@ const MonitorScreen = () => {
                             </View>
                         </View>
 
+                        {/* Hint when not in edit mode */}
+                        {!editMode && (
+                            <Text className="text-gray-600 text-[10px] text-center mb-3">
+                                Tap a cow to allow/deny fence exception
+                            </Text>
+                        )}
+
                         {/* Action Bar */}
-                        <View className="flex-row space-x-4">
+                        <View className="flex-row space-x-3">
+                            {/* Edit / Save fence */}
                             <TouchableOpacity
                                 onPress={toggleEditMode}
-                                className={`flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${editMode
-                                        ? 'bg-cyan-600 border-cyan-800'
-                                        : 'bg-indigo-600 border-indigo-800'
-                                    }`}
+                                className={`flex-1 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${
+                                    editMode ? 'bg-cyan-600 border-cyan-800' : 'bg-indigo-600 border-indigo-800'
+                                }`}
                             >
                                 <Text className="text-white font-bold tracking-wider text-sm">
-                                    {editMode ? 'SAVE CONFIG' : 'EDIT FENCE'}
+                                    {editMode ? 'SAVE FENCE' : 'EDIT FENCE'}
                                 </Text>
                             </TouchableOpacity>
+
+                            {/* Add point (only in edit mode) */}
+                            {editMode && (
+                                <TouchableOpacity
+                                    onPress={addFencePoint}
+                                    className="px-5 py-4 rounded-2xl items-center justify-center bg-teal-700 border-b-4 border-teal-900 active:border-b-0 active:mt-1"
+                                >
+                                    <Text className="text-white font-bold text-lg">＋</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {/* Fence toggle (hidden in edit mode) */}
+                            {!editMode && (
+                                <TouchableOpacity
+                                    onPress={toggleFence}
+                                    className={`px-5 py-4 rounded-2xl items-center justify-center border-b-4 active:border-b-0 active:mt-1 ${
+                                        fenceActive
+                                            ? 'bg-green-700 border-green-900'
+                                            : 'bg-gray-600 border-gray-800'
+                                    }`}
+                                >
+                                    <Text className="text-white font-bold text-xs tracking-wider">
+                                        {fenceActive ? 'FENCE\nON' : 'FENCE\nOFF'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 </View>

@@ -45,8 +45,8 @@ app.on_shutdown.append(on_shutdown)
 async def connect(sid, environ):
     logger.info(f"Client connected: {sid}")
     await sio.emit("message", {"status": "connected"}, room=sid)
-    # Send current zones
     await sio.emit("zones", zone_manager.zones, room=sid)
+    await sio.emit("fence_config", zone_manager.fence_config(), room=sid)
 
 @sio.event
 async def disconnect(sid):
@@ -59,7 +59,20 @@ async def disconnect(sid):
 async def update_zone(sid, data):
     logger.info(f"Updating zones: {data}")
     zone_manager.save_zones(data)
-    await sio.emit("zones", zone_manager.zones) # Broadcast
+    await sio.emit("zones", zone_manager.zones)
+
+@sio.event
+async def toggle_fence(sid, data):
+    zone_manager.toggle_active()
+    logger.info(f"Fence active: {zone_manager.fence_active}")
+    await sio.emit("fence_config", zone_manager.fence_config())
+
+@sio.event
+async def set_cow_exception(sid, data):
+    # data = {"cow_id": int, "allowed": bool}
+    zone_manager.set_allowed(int(data["cow_id"]), bool(data["allowed"]))
+    logger.info(f"Allowed IDs: {zone_manager.allowed_ids}")
+    await sio.emit("fence_config", zone_manager.fence_config())
 
 @sio.event
 async def ice_candidate(sid, data):

@@ -7,8 +7,10 @@ from aiortc import VideoStreamTrack
 from vision import VisionEngine
 from fence import ZoneManager
 
-# Color for person bounding boxes drawn on video (BGR orange)
+# Colors for bounding boxes drawn on video (BGR)
 PERSON_COLOR = (0, 140, 255)
+ALLOWED_COLOR = (100, 200, 0)
+INACTIVE_COLOR = (128, 128, 128)
 
 class CattleVideoTrack(VideoStreamTrack):
     """
@@ -61,7 +63,7 @@ class CattleVideoTrack(VideoStreamTrack):
                 cv2.putText(processed_frame, f"PERSON {det['id']}", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, PERSON_COLOR, 2)
             else:
-                status, color = self.fence.check_status(det["centroid"])
+                status, color = self.fence.check_status(det["centroid"], entity_id=det["id"])
                 det["status"] = status
                 cow_states.append(det)
                 x1, y1, x2, y2 = det["bbox"]

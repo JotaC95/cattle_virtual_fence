@@ -10,7 +10,15 @@ import {
 import useStore from '../store/useStore';
 
 const useCattleConnection = () => {
-    const { serverUrl, setIsConnected, setZones, setCows, setPersons } = useStore();
+    const {
+        serverUrl,
+        setIsConnected,
+        setZones,
+        setCows,
+        setPersons,
+        setFenceActive,
+        setAllowedCowIds,
+    } = useStore();
     const socketRef = useRef(null);
     const pcRef = useRef(null);
     const [remoteStream, setRemoteStream] = useState(null);
@@ -19,9 +27,8 @@ const useCattleConnection = () => {
     useEffect(() => {
         if (!serverUrl) return;
 
-        // Initialize Socket
         const socket = io(serverUrl, {
-            transports: ['websocket', 'polling'], // Allow polling as fallback
+            transports: ['websocket', 'polling'],
             reconnectionAttempts: 5,
         });
         socketRef.current = socket;
@@ -41,6 +48,11 @@ const useCattleConnection = () => {
             setZones(data);
         });
 
+        socket.on('fence_config', (data) => {
+            setFenceActive(data.fence_active);
+            setAllowedCowIds(data.allowed_ids || []);
+        });
+
         socket.on('state', (payload) => {
             if (payload.cows) setCows(payload.cows);
             if (payload.persons) setPersons(payload.persons);
@@ -57,7 +69,6 @@ const useCattleConnection = () => {
             }
         });
 
-        // Cleanup
         return () => {
             socket.disconnect();
             if (pcRef.current) {
@@ -84,27 +95,22 @@ const useCattleConnection = () => {
 
         pc.ontrack = (event) => {
             console.log('Received Remote Stream (ontrack)');
-            // event.streams[0] is the MediaStream
             if (event.streams && event.streams[0]) {
                 setRemoteStream(event.streams[0]);
             }
         };
 
-        // Create Offer
-        // Add transceiver to tell server we want to receive video
         pc.addTransceiver('video', { direction: 'recvonly' });
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        // waiting for server answer interaction
         const response = await new Promise((resolve) => {
             socketRef.current.emit('offer', { sdp: offer.sdp, type: offer.type }, (ans) => {
                 resolve(ans);
             });
         });
 
-        // Handle Answer
         if (response) {
             await pc.setRemoteDescription(new RTCSessionDescription(response));
         }
@@ -116,7 +122,19 @@ const useCattleConnection = () => {
         }
     };
 
-    return { remoteStream, updateZone, pcState };
+    const toggleFence = () => {
+        if (socketRef.current) {
+            socketRef.current.emit("toggle_fence", {});
+        }
+    };
+
+    const setCowException = (cowId, allowed) => {
+        if (socketRef.current) {
+            socketRef.current.emit("set_cow_exception", { cow_id: cowId, allowed });
+        }
+    };
+
+    return { remoteStream, updateZone, pcState, toggleFence, setCowException };
 };
 
 export default useCattleConnection;
