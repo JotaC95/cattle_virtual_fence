@@ -51,7 +51,7 @@ async def connect(sid, environ):
     await sio.emit("message", {"status": "connected"}, room=sid)
     await sio.emit("zones", zone_manager.zones, room=sid)
     await sio.emit("fence_config", zone_manager.fence_config(), room=sid)
-    summary = brain.recent_summary(limit=8)
+    summary = await brain.recent_summary(limit=8)
     await sio.emit("memory_summary", {"items": _serialize(summary)}, room=sid)
 
 @sio.event
@@ -91,7 +91,7 @@ async def set_webhook(sid, data):
 async def query_memory(sid, data):
     # data = {"question": "cuántas veces cruzó la vaca 3?"}
     question = data.get("question", "")
-    results = brain.query(question)
+    results = await brain.query(question)
     await sio.emit("memory_response", {"question": question, "results": _serialize(results)}, room=sid)
 
 def _serialize(obj):

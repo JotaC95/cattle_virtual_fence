@@ -6,4 +6,3 @@ ultralytics
 opencv-python-headless
 numpy
 shapely
-engram-core

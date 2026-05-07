@@ -79,14 +79,14 @@ class ActuatorManager:
         }
         logger.info("Actuator dispatch: %s", payload)
 
-        # Record in persistent memory (fire-and-forget, non-blocking)
+        # Record in persistent memory (async HTTP call to Engram server)
         if self.brain:
             try:
                 ts = payload["timestamp"]
                 if event_type in ("breach", "return"):
-                    self.brain.record_crossing(payload["cow_id"], payload["action"], centroid, ts)
+                    await self.brain.record_crossing(payload["cow_id"], payload["action"], centroid, ts)
                 elif event_type == "person_alert":
-                    self.brain.record_person(payload["person_ids"], ts)
+                    await self.brain.record_person(payload["person_ids"], ts)
             except Exception as e:
                 logger.warning("Brain record error: %s", e)
 
