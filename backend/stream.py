@@ -15,10 +15,10 @@ class CattleVideoTrack(VideoStreamTrack):
     """
     kind = "video"
 
-    def __init__(self, source=0, socket_emit=None):
+    def __init__(self, source=0, socket_emit=None, use_eagle=False, model_path="yolov8n.pt"):
         super().__init__()
         self.cap = cv2.VideoCapture(source)
-        self.vision = VisionEngine()
+        self.vision = VisionEngine(model_path=model_path, use_eagle=use_eagle)
         self.fence = ZoneManager()
         self.socket_emit = socket_emit
         

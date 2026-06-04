@@ -15,6 +15,16 @@ from aiortc.sdp import candidate_from_sdp
 from stream import CattleVideoTrack
 from fence import ZoneManager
 
+# Configuración de argumentos CLI
+parser = argparse.ArgumentParser(description="Cattle Virtual Fence Backend")
+parser.add_argument('--model', choices=['yolo', 'eagle'], default='yolo',
+                    help='Modelo de detección: yolo (default) o eagle (LocateAnything)')
+parser.add_argument('--model-path', default='yolov8n.pt',
+                    help='Ruta al modelo local o ID de HuggingFace')
+parser.add_argument('--port', type=int, default=5001,
+                    help='Puerto para el servidor (default: 5001)')
+args, _ = parser.parse_known_args()
+
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CattleBackend")
@@ -143,12 +153,25 @@ async def offer(sid, params):
     # If neither, we might fail unless we implement Synthetic.
     # For now, let's assume usage of file or cam.
     
-    if video_source: 
+    use_eagle = args.model == 'eagle'
+    logger.info(f"Using model: {args.model} (path: {args.model_path})")
+
+    if video_source:
         logger.info(f"Using video file: {video_source}")
-        track = CattleVideoTrack(source=video_source, socket_emit=async_emit)
+        track = CattleVideoTrack(
+            source=video_source,
+            socket_emit=async_emit,
+            use_eagle=use_eagle,
+            model_path=args.model_path
+        )
     else:
         logger.info("Using Camera (Index 0)")
-        track = CattleVideoTrack(source=0, socket_emit=async_emit)
+        track = CattleVideoTrack(
+            source=0,
+            socket_emit=async_emit,
+            use_eagle=use_eagle,
+            model_path=args.model_path
+        )
     
     track.fence = zone_manager
     pc.addTrack(track)
@@ -165,4 +188,4 @@ async def offer(sid, params):
     }
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=5001)
+    web.run_app(app, host="0.0.0.0", port=args.port)
