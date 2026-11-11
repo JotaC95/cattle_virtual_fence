@@ -1,40 +1,35 @@
-# Cattle Virtual Fence — Computer Vision Prototype
+# Cattle Virtual Fence — Experimental Livestock Monitoring
 
-**Exploring real-time livestock monitoring with a Python video backend and React Native mobile client.**
+A prototype connecting Python computer vision, video streaming, zone management and a mobile interface. **It is not a validated animal-containment system.**
 
-This is an experimental project, **not** a proven virtual fence or animal-containment system. The repository combines video processing, a configurable zone model and mobile interaction.
+## What is in the repository?
 
-## Architecture at a glance
+| Component | Location | Responsibility |
+| --- | --- | --- |
+| Backend | `backend/main.py` | aiohttp, Socket.IO connections and WebRTC signaling |
+| Video and detection | `backend/stream.py`, `backend/vision.py` | Video track and computer-vision processing |
+| Zone model | `backend/fence.py` | Zone state and updates |
+| Mobile | `mobile/` | Expo / React Native interface |
+| Local orchestration | `docker-compose.yml` | Container configuration |
+
+## System overview
 
 ```text
-Video file / camera
-       |
-       v
-Python backend (aiohttp + Socket.IO + aiortc)
-       |                 \\
-       v                  v
-Computer-vision track   ZoneManager
-       |                  |
-       +--------+---------+
-                |
-         WebRTC / Socket.IO
-                |
-        Expo mobile client
+Camera or bundled test video
+            |
+            v
+    Python video backend ---- ZoneManager
+            |                    |
+            +------ Socket.IO ---+
+            |
+          WebRTC
+            |
+    Expo / React Native app
 ```
 
-The backend has handlers for connections, zone updates, WebRTC offers and ICE candidates. It selects `backend/cow_test.mp4` if available, otherwise attempts camera index 0. The project also includes a YOLO model file; detection accuracy and live deployment behavior have not been independently verified.
+## Getting started
 
-## Repository structure
-
-- `backend/main.py` — aiohttp app, Socket.IO events and WebRTC session handling.
-- `backend/stream.py`, `vision.py`, `fence.py` — video, vision and zone-related logic.
-- `backend/requirements.txt`, `Dockerfile` — backend dependencies and container configuration.
-- `mobile/` — Expo / React Native app, WebRTC and Socket.IO client dependencies.
-- `docker-compose.yml` — local orchestration configuration.
-
-## Local setup
-
-Backend dependencies:
+### Backend environment
 
 ```bash
 git clone https://github.com/JotaC95/cattle_virtual_fence.git
@@ -44,29 +39,42 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Mobile app (second terminal):
+Review `backend/run_local.sh` and `backend/main.py` for the current startup options before launching. The code chooses `cow_test.mp4` from its working directory when available, otherwise it attempts camera index 0. Camera access, codecs and WebRTC connectivity depend on the host environment.
+
+### Mobile environment
+
+Open a separate terminal from the repository root:
 
 ```bash
-cd cattle_virtual_fence/mobile
+cd mobile
 npm ci
 npx expo start
 ```
 
-WebRTC native modules may require a development build rather than Expo Go. Backend startup, device connectivity, video permissions and host configuration must be checked in your environment.
+WebRTC native modules may require an Expo development build rather than Expo Go. Configure the backend host for your device; local network access and camera permissions must be available.
 
-## Security and safety notes
+## Interaction flow
 
-- Current Socket.IO backend configuration permits all CORS origins; restrict this and add authentication before any public deployment.
-- Never expose unprotected camera feeds or zone-control endpoints to the internet.
-- Prototype detection is not sufficient to keep animals contained or safe. No field performance, false-positive rate or animal welfare validation is claimed.
+1. A client connects through Socket.IO and receives current zone data.
+2. The client may send zone updates to the backend.
+3. WebRTC signaling negotiates a video connection.
+4. The backend creates a video track from a local test video or camera.
 
-## Next milestones
+These are source-code paths, **not** a claim that the full experience has been validated on a real device.
 
-1. Record reproducible setup and verified device demo.
-2. Add sanitized architecture screenshots and sample zone interaction.
-3. Add backend and mobile tests, authentication and restrictive CORS.
-4. Measure detection performance and failure cases in controlled conditions.
+## Security and safety
 
-## Engineering value
+- Backend Socket.IO currently allows all origins; add authentication and restrict origins before deployment.
+- Do not expose camera feeds or zone-control endpoints publicly.
+- Detection errors, network failures and latency can occur. Do not rely on this prototype for animal safety or containment.
+- Use only footage you are authorized to process.
 
-Demonstrates integration across Python, real-time video, WebRTC, mobile applications and experimental computer vision.
+## Troubleshooting
+
+- **Mobile connection fails:** confirm IP/port, device connectivity and firewall rules.
+- **No video:** check working directory, test file or camera permissions, codecs and WebRTC signaling.
+- **Expo Go limitation:** use a supported development build for native WebRTC dependencies.
+
+## Roadmap
+
+Document reproducible startup commands, create a sanitized demonstration, add automated tests, secure signaling, and measure detection accuracy and failure cases.
