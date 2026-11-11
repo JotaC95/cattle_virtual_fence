@@ -1,0 +1,37 @@
+name: Prepare npm security remediation
+on:
+  workflow_dispatch:
+  push:
+    branches: [security/automated-npm-remediation-2026]
+    paths:
+      - '.github/workflows/npm-remediation.yml'
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  propose-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply non-breaking npm audit fixes
+        working-directory: mobile
+        run: |
+          npm ci
+          npm audit fix || true
+          npm run build --if-present
+          npm audit --omit=dev --audit-level=high
+      - name: Open reviewable dependency patch
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'security: apply compatible npm audit fixes'
+          branch: 'security/npm-audit-compatible-fixes'
+          delete-branch: true
+          title: 'Security: compatible npm audit fixes'
+          body: 'Automated non-breaking npm audit fixes. Review lockfile and validate builds before merging.'
+          add-paths: |
+            mobile/package-lock.json
+            mobile/package.json
