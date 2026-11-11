@@ -1,49 +1,72 @@
-# Cattle Virtual Fence
+# Cattle Virtual Fence — Computer Vision Prototype
 
-Experimental computer-vision-based livestock monitoring and virtual-fencing project.
+**Exploring real-time livestock monitoring with a Python video backend and React Native mobile client.**
 
-## Repository layout
+This is an experimental project, **not** a proven virtual fence or animal-containment system. The repository combines video processing, a configurable zone model and mobile interaction.
 
-- `backend/`: Python backend and computer-vision dependencies (see `requirements.txt`).
-- `mobile/`: Expo / React Native mobile application.
-- `docker-compose.yml`: local service orchestration configuration.
+## Architecture at a glance
 
-## Development setup
+```text
+Video file / camera
+       |
+       v
+Python backend (aiohttp + Socket.IO + aiortc)
+       |                 \\
+       v                  v
+Computer-vision track   ZoneManager
+       |                  |
+       +--------+---------+
+                |
+         WebRTC / Socket.IO
+                |
+        Expo mobile client
+```
 
-### Backend
+The backend has handlers for connections, zone updates, WebRTC offers and ICE candidates. It selects `backend/cow_test.mp4` if available, otherwise attempts camera index 0. The project also includes a YOLO model file; detection accuracy and live deployment behavior have not been independently verified.
 
-Create a Python virtual environment, then install the backend requirements:
+## Repository structure
+
+- `backend/main.py` — aiohttp app, Socket.IO events and WebRTC session handling.
+- `backend/stream.py`, `vision.py`, `fence.py` — video, vision and zone-related logic.
+- `backend/requirements.txt`, `Dockerfile` — backend dependencies and container configuration.
+- `mobile/` — Expo / React Native app, WebRTC and Socket.IO client dependencies.
+- `docker-compose.yml` — local orchestration configuration.
+
+## Local setup
+
+Backend dependencies:
 
 ```bash
-cd backend
-python -m venv .venv
+git clone https://github.com/JotaC95/cattle_virtual_fence.git
+cd cattle_virtual_fence/backend
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Review backend entry points and required configuration before starting services. The requirements currently contain unpinned dependencies; reproducible installation and supported Python versions need verification.
-
-### Mobile
+Mobile app (second terminal):
 
 ```bash
-cd mobile
+cd cattle_virtual_fence/mobile
 npm ci
 npx expo start
 ```
 
-Expo native features may require device permissions and additional configuration.
+WebRTC native modules may require a development build rather than Expo Go. Backend startup, device connectivity, video permissions and host configuration must be checked in your environment.
 
-## Verification and limitations
+## Security and safety notes
 
-This is a prototype, not a validated animal-containment or safety system. No real-world containment performance or detection accuracy is claimed here. Hardware, model files, video sources and network configuration must be verified for each deployment.
+- Current Socket.IO backend configuration permits all CORS origins; restrict this and add authentication before any public deployment.
+- Never expose unprotected camera feeds or zone-control endpoints to the internet.
+- Prototype detection is not sufficient to keep animals contained or safe. No field performance, false-positive rate or animal welfare validation is claimed.
 
-## Security
+## Next milestones
 
-Do not commit credentials, camera access tokens, recordings containing private information or environment-specific configuration. Use authorized devices and networks only.
+1. Record reproducible setup and verified device demo.
+2. Add sanitized architecture screenshots and sample zone interaction.
+3. Add backend and mobile tests, authentication and restrictive CORS.
+4. Measure detection performance and failure cases in controlled conditions.
 
-## Next steps
+## Engineering value
 
-- Document backend startup and API endpoints from verified source.
-- Add architecture diagram and screenshots.
-- Pin and audit Python dependencies.
-- Add tests and document detection accuracy and limitations.
+Demonstrates integration across Python, real-time video, WebRTC, mobile applications and experimental computer vision.
